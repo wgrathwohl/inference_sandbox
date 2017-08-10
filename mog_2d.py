@@ -1,8 +1,10 @@
-# Implements black-box variational inference, where the variational
-# distribution is a mixture of Gaussians.
-#
-# This trick was written up by Alex Graves in this note:
-# http://arxiv.org/abs/1607.05690
+"""
+Variational Mixture of Gaussians Example
+
+the posterior was lovingly ripped
+from https://github.com/HIPS/autograd/blob/master/examples/mixture_variational_inference.py
+as well as some of the visualization <3
+"""
 
 from __future__ import absolute_import
 from __future__ import print_function
