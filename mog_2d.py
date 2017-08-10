@@ -44,7 +44,7 @@ if __name__ == '__main__':
     sess = tf.Session()
     # Specify an inference problem by its unnormalized log-density.
     D = 2
-    batch_size = 64
+    batch_size = 65
     post = MOGApproximatePosterior(D, batch_size, 10)
     log_ps = unormalized_log_posterior_density(post.sample)
     elbo = tf.reduce_mean(log_ps - post.log_qs)
