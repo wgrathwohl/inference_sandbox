@@ -59,6 +59,30 @@ class GaussianApproximatePosterior(ApproximatePosterior):
     def log_qs_given_x(self, x):
         return diag_gaussian_log_density(x, self._mu, self._logvar)
 
+class QFPosterior(ApproximatePosterior):
+    def __init__(self, D, batch_size, k):
+        self.proposals = []
+        assert batch_size % k == 0
+        p_batch_size = batch_size / k
+        self.k = k
+        for i in range(k):
+            with tf.variable_scope("proposal_{}".format(i)):
+                self.proposals.append(GaussianApproximatePosterior(D, p_batch_size))
+
+        samples = tf.concat([tf.expand_dims(d.sample, 0) for d in self.proposals], 0)
+        self._sample = samples
+        self._params = []
+        for p in self.proposals:
+            self._params.extend(p.params)
+
+    def log_qs_given_x(self, x):
+        qss = []
+        for i, proposal in enumerate(self.proposals):
+            qs_cur = tf.expand_dims(proposal.log_qs_given_x(x[i, :, :]), 0)
+            qss.append(qs_cur)
+        qss = tf.concat(qss, 0)
+        return qss
+
 
 import random
 class MOGApproximatePosterior(ApproximatePosterior):
