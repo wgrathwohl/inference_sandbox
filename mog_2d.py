@@ -20,16 +20,7 @@ def unormalized_log_posterior_density(x):
     mu_density = gaussian_log_density(mu, -.5, 2. * log_sigma)
     sigma_density2 = gaussian_log_density(log_sigma, .1, 2. * tf.log(1.35))
     mu_density2 = gaussian_log_density(mu, .5, 2. * log_sigma)
-    return tf.reduce_logsumexp([sigma_density + mu_density, sigma_density2 + mu_density2], axis=0)[:, 0]
-
-# def unormalized_log_posterior_density(x):
-#     """An example 2D intractable distribution:
-#     a Gaussian evaluated at zero with a Gaussian prior on the log-variance.
-#     x should be N x 2"""
-#     mu, log_sigma = x[:, 0:1], x[:, 1:]
-#     prior = gaussian_log_density(log_sigma, 0, 2. * tf.log(1.35))
-#     likelihood  = gaussian_log_density(mu, 0, 2. * log_sigma)
-#     return (prior + likelihood)[:, 0]
+    return tf.reduce_logsumexp([sigma_density + mu_density, sigma_density2 + mu_density2], axis=0)
 
 # Set up plotting code
 def plot_isocontours(ax, func, pl, sess, xlimits=[-4, 4], ylimits=[-4, 4],
@@ -45,40 +36,18 @@ def plot_isocontours(ax, func, pl, sess, xlimits=[-4, 4], ylimits=[-4, 4],
     ax.set_xticks([])
 
 
-def reduce_logmeanexp(input_tensor, axis=0, keep_dims=False):
-   """Computes log(mean(exp(elements across dimensions of a tensor))).			
-   Args:		
-     input_tensor: tf.Tensor.		
-         The tensor to reduce. Should have numeric type.		
-     axis: int or list of int, optional.		
-         The dimensions to reduce. If `None` (the default), reduces all		
-         dimensions.		
-     keep_dims: bool, optional.		
-         If true, retains reduced dimensions with length 1.		
- 		
-   Returns:		
-       tf.Tensor.		
-       The reduced tensor.		
-   """
-   logsumexp = tf.reduce_logsumexp(input_tensor, axis, keep_dims)
-   input_tensor = tf.convert_to_tensor(input_tensor)
-   n = float(input_tensor.shape.as_list()[axis])
-
-   return -tf.log(n) + logsumexp
+def log_mean_exp(x, axis=None):
+    m = tf.reduce_max(x, axis=axis)
+    return m + tf.log(tf.reduce_mean(tf.exp(x - m), axis=axis))
 
 if __name__ == '__main__':
     sess = tf.Session()
     # Specify an inference problem by its unnormalized log-density.
     D = 2
-    k = 5
-    batch_size = 100
-    #post = GaussianApproximatePosterior(D, batch_size)
-    #post = MOGApproximatePosterior(D, batch_size, 10)
-    post = QFPosterior(D, batch_size, k)
-    log_ps = tf.concat([tf.expand_dims(unormalized_log_posterior_density(post.sample[i, :, :]), 0) for i in range(k)], 0)
-    sample_elbo = log_ps - post.log_qs
-    elbo = tf.reduce_mean(reduce_logmeanexp(sample_elbo, axis=0))
-    #elbo = tf.reduce_mean(sample_elbo)
+    batch_size = 65
+    post = MOGApproximatePosterior(D, batch_size, 10)
+    log_ps = unormalized_log_posterior_density(post.sample)
+    elbo = tf.reduce_mean(log_ps - post.log_qs)
     opt = tf.train.AdamOptimizer(learning_rate=.1).minimize(-1. * elbo, var_list=post.params)
 
     init = tf.global_variables_initializer()
@@ -87,7 +56,7 @@ if __name__ == '__main__':
     # needed for display purposes
     x = tf.placeholder(tf.float32, [None, D])
     true_post_density = tf.exp(unormalized_log_posterior_density(x))
-    approx_post_densites = [tf.exp(p.log_qs_given_x(x)) for p in post.proposals]
+    approx_post_density = tf.exp(post.log_qs_given_x(x))
     fig = plt.figure(figsize=(8, 8), facecolor='white')
     ax = fig.add_subplot(111, frameon=False)
     plt.ion()
@@ -96,8 +65,7 @@ if __name__ == '__main__':
     def draw():
         plt.cla()
         plot_isocontours(ax, true_post_density, x, sess)
-        for apd in approx_post_densites:
-            plot_isocontours(ax, apd, x, sess)
+        plot_isocontours(ax, approx_post_density, x, sess)
         ax.set_autoscale_on(False)
         samples = sess.run(post.sample)
         plt.plot(samples[:, 0], samples[:, 1], 'x')
