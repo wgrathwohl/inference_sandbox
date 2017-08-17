@@ -4,11 +4,10 @@ Houses Approximate Posterior Classes
 import tensorflow as tf
 import numpy as np
 
-
 def diag_gaussian_log_density(x, mu, logvar):
     ms, lvs = mu.get_shape().as_list(), logvar.get_shape().as_list()
     assert len(ms) == len(lvs) == 2, (ms, lvs)
-    assert ms[0] == lvs[0] == 1, (ms, lvs)
+    #assert ms[0] == lvs[0] == 1, (ms, lvs)
     lps = -1. * tf.square(x - mu) / (2. * tf.exp(logvar)) - .5 * (np.log(2. * np.pi) + logvar)
     return tf.reduce_sum(lps, axis=1)
 
@@ -50,7 +49,7 @@ class GaussianApproximatePosterior(ApproximatePosterior):
         )
         self._logvar = tf.get_variable(
             "logvar", shape=[1, D], dtype=tf.float32,
-            initializer=tf.constant_initializer(0.), trainable=True
+            initializer=tf.constant_initializer(-5.), trainable=True
         )
         eps = tf.random_normal((batch_size, D))
         self._sample = self._mu + eps * tf.exp(self._logvar / 2.0)
@@ -62,12 +61,11 @@ class GaussianApproximatePosterior(ApproximatePosterior):
 class QFPosterior(ApproximatePosterior):
     def __init__(self, D, batch_size, k):
         self.proposals = []
-        assert batch_size % k == 0
-        p_batch_size = batch_size / k
+        batch_size = batch_size
         self.k = k
         for i in range(k):
             with tf.variable_scope("proposal_{}".format(i)):
-                self.proposals.append(GaussianApproximatePosterior(D, p_batch_size))
+                self.proposals.append(GaussianApproximatePosterior(D, batch_size))
 
         samples = tf.concat([tf.expand_dims(d.sample, 0) for d in self.proposals], 0)
         self._sample = samples
@@ -80,6 +78,46 @@ class QFPosterior(ApproximatePosterior):
         for i, proposal in enumerate(self.proposals):
             qs_cur = tf.expand_dims(proposal.log_qs_given_x(x[i, :, :]), 0)
             qss.append(qs_cur)
+        qss = tf.concat(qss, 0)
+        return qss
+
+gs = lambda x: x.get_shape().as_list()
+
+class QAFPosterior(ApproximatePosterior):
+    def __init__(self, D, batch_size, k, rnn_size=8):
+        batch_size = batch_size
+        self.rnn = tf.contrib.rnn.BasicRNNCell(rnn_size)
+
+        with tf.variable_scope("proposal_0"):
+            p0 = GaussianApproximatePosterior(D, batch_size)
+
+        self.initial_state = tf.zeros([batch_size, self.rnn.state_size])
+        state = self.initial_state
+        s_cur = p0.sample
+        samples = [s_cur]
+        self.mus = [p0._mu]
+        self.logvars = [p0._logvar]
+        for i in range(1, k):
+            output, state = self.rnn(s_cur, state)
+            mu_i = tf.layers.dense(output, D, name="mu_out", reuse=i>1)
+            logvar_i = tf.layers.dense(output, D, name="logvar_out", reuse=i>1)
+            self.mus.append(mu_i)
+            self.logvars.append(logvar_i)
+            eps = tf.random_normal((batch_size, D))
+            sample = mu_i + eps * tf.exp(logvar_i / 2.0)
+            samples.append(sample)
+
+        samples = tf.concat([tf.expand_dims(s, 0) for s in samples], 0)
+
+        self._sample = samples
+        self._params = tf.trainable_variables()
+
+    def log_qs_given_x(self, x):
+        qss = []
+        for i, (mu, logvar) in enumerate(zip(self.mus, self.logvars)):
+            x_i = x[i, :, :]
+            qs_cur = diag_gaussian_log_density(x_i, mu, logvar)
+            qss.append(tf.expand_dims(qs_cur, 0))
         qss = tf.concat(qss, 0)
         return qss
 
@@ -129,3 +167,6 @@ class MOGApproximatePosterior(ApproximatePosterior):
             axis=1
         )
         return tf.reduce_logsumexp(self._normalized_log_weights + per_gaussian_log_qs, axis=1)
+if __name__ == "__main__":
+    #qf = QFPosterior(2, 10, 5)
+    qaf = QAFPosterior(2, 10, 5)
